@@ -1,0 +1,26 @@
+services:
+  sweeparr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sweeparr
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - sweeparr-data:/app/data
+    environment:
+      - DATABASE_URL=file:/app/data/db.sqlite
+      - NODE_ENV=production
+      # Optional: override these at runtime
+      # - PORT=3000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/settings"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  sweeparr-data:
+    name: sweeparr-data

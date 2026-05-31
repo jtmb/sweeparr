@@ -1,0 +1,2 @@
+ALTER TABLE "CleanupReport" ADD COLUMN "pauseRequested" BOOLEAN NOT NULL DEFAULT 0;
+ALTER TABLE "CleanupReport" ADD COLUMN "stopRequested" BOOLEAN NOT NULL DEFAULT 0;

@@ -1,0 +1,23 @@
+# VCS
+.git
+.gitignore
+
+# Node/Next build artifacts
+node_modules
+.next
+
+# Local runtime/state
+dev.db
+logs
+
+# Env files
+.env
+.env.*
+
+# Editor/system
+.vscode
+.DS_Store
+
+# Docs/notes not needed in image
+CLAUDE.md
+AGENTS.md

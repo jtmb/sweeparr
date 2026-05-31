@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Settings {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model CleanupRule {
+  id                     String   @id @default(cuid())
+  name                   String
+  libraryId              String?
+  enabled                Boolean  @default(true)
+  minAgeDays             Int      @default(30)
+  maxDaysSinceWatched    Int?
+  protectNeverWatched    Boolean  @default(false)
+  protectInProgress      Boolean  @default(true)
+  protectCurrentlyPlaying Boolean @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+model CleanupReport {
+  id             String              @id @default(cuid())
+  generatedAt    DateTime            @default(now())
+  status         String              @default("DRAFT")
+  totalItems     Int                 @default(0)
+  totalSizeBytes BigInt              @default(0)
+  executedAt       DateTime?
+  triggeredBy      String?
+  pauseRequested   Boolean             @default(false)
+  stopRequested    Boolean             @default(false)
+  items            CleanupReportItem[]
+}
+
+model CleanupReportItem {
+  id            String        @id @default(cuid())
+  reportId      String
+  report        CleanupReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  mediaType     String
+  radarrId      Int?
+  sonarrId      Int?
+  plexRatingKey String
+  title         String
+  year          Int?
+  addedAt       DateTime
+  lastWatchedAt DateTime?
+  watchCount    Int           @default(0)
+  fileSizeBytes BigInt        @default(0)
+  reasons       String
+  ruleName      String?
+  status        String        @default("pending")
+  errorMessage  String?
+  posterPath    String?
+  createdAt     DateTime      @default(now())
+}
+
+model NotificationConfig {
+  id        String   @id @default(cuid())
+  type      String   @unique
+  enabled   Boolean  @default(false)
+  config    String
+  updatedAt DateTime @updatedAt
+}
+
+model ScheduleConfig {
+  id                String    @id @default(cuid())
+  cronExpr          String    @default("0 2 * * *")
+  enabled           Boolean   @default(false)
+  autoDelete        Boolean   @default(false)
+  lastRunAt         DateTime?
+  lastRunStatus     String?
+  libraryScanEnabled Boolean  @default(false)
+  libraryScanCron   String    @default("0 * * * *")
+  libraryScanLastAt DateTime?
+  updatedAt         DateTime  @updatedAt
+}
+
+model LibraryCache {
+  sectionId     String    @id
+  sectionJson   String
+  mediaJson     String
+  scannedAt     DateTime  @default(now())
+  scanning      Boolean   @default(false)
+  scanStartedAt DateTime?
+}
+
+model AuthConfig {
+  id           String    @id @default(cuid())
+  enabled      Boolean   @default(false)
+  username     String    @default("")
+  passwordHash String    @default("")
+  secretKey    String    @default("")
+}
+
+model PermanentExclusion {
+  id            String   @id @default(cuid())
+  plexRatingKey String   @unique
+  title         String
+  year          Int?
+  mediaType     String
+  posterPath    String?
+  addedAt       DateTime @default(now())
+}
