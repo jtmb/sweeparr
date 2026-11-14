@@ -1,3 +1,4 @@
+import { guardApi } from '@/lib/auth/guard'
 import { NextResponse } from 'next/server'
 import { isDemoMode, invalidateDemoModeCache, seedDemoData, clearDemoData } from '@/lib/demo'
 import { clearAllSessions } from '@/lib/demo/session'
@@ -6,6 +7,8 @@ export const dynamic = 'force-dynamic'
 
 // POST /api/settings/system/reset — wipe all session data and re-seed demo data
 export async function POST() {
+  const denied = await guardApi('system')
+  if (denied) return denied
   try {
     const demo = await isDemoMode()
     if (!demo) {

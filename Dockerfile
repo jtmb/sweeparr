@@ -1,5 +1,5 @@
 # ── deps ────────────────────────────────────────────────────────────────────
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache python3 make g++
 COPY package*.json ./
@@ -9,30 +9,32 @@ RUN npm config set fetch-retries 5 \
 	&& npm ci --no-audit --no-fund
 
 # ── builder ──────────────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Build-time DB for pages that read Prisma during prerender
+# No production database or scheduled work is needed during the build.
 ENV DATABASE_URL=file:/tmp/build.db
 
 # Generate Prisma client
 RUN npx prisma generate
-RUN npx prisma db push
 
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
-RUN npm run build
+RUN SWEEPARR_DISABLE_BACKGROUND=1 NODE_OPTIONS=--max-old-space-size=1024 npm run build -- --webpack
 
 # ── runner ───────────────────────────────────────────────────────────────────
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOME=/home/nextjs
+ENV DATABASE_URL=file:/app/data/db.sqlite
+ENV DEMO_DATABASE_PATH=/app/data/demo.db
+ENV DEMO_SESSIONS_DIR=/app/data/demo-sessions
 
 # tini handles signals/zombie reaping when running as PID 1
 RUN apk add --no-cache tini
@@ -45,6 +47,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
+COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/src/generated ./src/generated
 

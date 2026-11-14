@@ -1,9 +1,12 @@
+import { guardApi } from '@/lib/auth/guard'
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db/client'
 import { generateReport } from '@/lib/cleanup/engine'
 import { getDemoContext, demoGenerateReport, saveDemoSession } from '@/lib/demo'
 
 export async function GET() {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   try {
     const { demoMode, sessionId, session } = await getDemoContext()
 
@@ -59,6 +62,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   try {
     const { demoMode, sessionId, session } = await getDemoContext()
 

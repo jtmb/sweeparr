@@ -1,4 +1,5 @@
 'use client'
+import { htmlJson, csvCell } from '@/lib/reports/encoding'
 
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
@@ -63,6 +64,8 @@ const ITEM_STATUS_STYLES: Record<string, string> = {
   deleted: 'text-emerald-400',
   skipped: 'text-muted-foreground',
   error: 'text-rose-400',
+  unknown: 'text-rose-400',
+  deleting: 'text-amber-400',
 }
 
 const LETTERS = ['#','A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z']
@@ -590,10 +593,7 @@ export default function ReportDetailPage() {
   const handleExportCsv = () => {
     if (!report) return
     const headers = ['Title', 'Year', 'Media Type', 'Size (GB)', 'Status', 'Error Message', 'Rule', 'Reasons', 'Added', 'Last Watched']
-    const esc = (v: string | number | null | undefined) => {
-      const s = v == null ? '' : String(v)
-      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
-    }
+    const esc = csvCell
     const rows = report.items.map((i) => [
       esc(i.title),
       esc(i.year),
@@ -620,7 +620,7 @@ export default function ReportDetailPage() {
     if (!report) return
     const deletedCount = report.items.filter((i) => i.status === 'deleted').length
     const skippedCount = report.items.filter((i) => i.status === 'skipped').length
-    const errorCount = report.items.filter((i) => i.status === 'error').length
+    const errorCount = report.items.filter((i) => i.status === 'error' || i.status === 'unknown').length
     const pendingCount = report.items.filter((i) => i.status === 'pending').length
     const freedBytes = report.items.filter((i) => i.status === 'deleted').reduce((s, i) => s + i.fileSizeBytes, 0)
     const fmtBytes = (b: number) => {
@@ -632,8 +632,8 @@ export default function ReportDetailPage() {
     const fmtDate = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString() : '—'
 
     // Serialize items into a non-executing JSON data block.
-    // Only </script> needs escaping to prevent premature tag close.
-    const itemsJson = JSON.stringify(report.items.map((i) => ({
+    // All less-than characters are escaped before entering HTML raw text.
+    const itemsJson = htmlJson(report.items.map((i) => ({
       title: i.title,
       year: i.year ?? null,
       mediaType: i.mediaType,
@@ -643,7 +643,6 @@ export default function ReportDetailPage() {
       reasons: i.reasons.join(', '),
       lastWatchedAt: i.lastWatchedAt ?? null,
     })))
-      .replace(/<\/script>/gi, '<\\/script>')
 
     const summaryHtml = report.status === 'COMPLETED' ? `
   <table style="width:100%;border-collapse:collapse;margin-bottom:24px">
@@ -1211,7 +1210,7 @@ export default function ReportDetailPage() {
       {report.status === 'COMPLETED' && (() => {
         const deletedCount = report.items.filter((i) => i.status === 'deleted').length
         const skippedCount = report.items.filter((i) => i.status === 'skipped').length
-        const errorCount = report.items.filter((i) => i.status === 'error').length
+        const errorCount = report.items.filter((i) => i.status === 'error' || i.status === 'unknown').length
         const freedBytes = report.items
           .filter((i) => i.status === 'deleted')
           .reduce((s, i) => s + i.fileSizeBytes, 0)
@@ -1311,7 +1310,7 @@ export default function ReportDetailPage() {
               <div>
                 <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Status</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {(['pending', 'deleted', 'skipped', 'error'] as const).map((s) => (
+                  {(['pending', 'deleting', 'deleted', 'skipped', 'error', 'unknown'] as const).map((s) => (
                     <button
                       key={s}
                       onClick={() => setFilterStatus((prev) =>
@@ -1631,8 +1630,8 @@ export default function ReportDetailPage() {
 
                       {/* Status */}
                       <span
-                        className={`text-xs font-medium capitalize ${ITEM_STATUS_STYLES[item.status] ?? ''} ${item.status === 'error' && item.errorMessage ? 'cursor-help underline decoration-dotted' : ''}`}
-                        title={item.status === 'error' && item.errorMessage ? item.errorMessage : undefined}
+                        className={`text-xs font-medium capitalize ${ITEM_STATUS_STYLES[item.status] ?? ''} ${item.errorMessage ? 'cursor-help underline decoration-dotted' : ''}`}
+                        title={item.errorMessage ?? undefined}
                       >
                         {item.status}
                       </span>

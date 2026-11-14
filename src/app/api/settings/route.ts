@@ -1,9 +1,12 @@
+import { guardApi } from '@/lib/auth/guard'
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db/client'
 import { getConnectionConfig, saveConnectionConfig } from '@/lib/db/queries'
 import { getDemoContext, demoPrisma } from '@/lib/demo'
 
 export async function GET() {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   try {
     const { demoMode } = await getDemoContext()
     const connections = demoMode ? {
@@ -47,6 +50,8 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   try {
     const body = (await req.json()) as {
       section: 'connections' | 'schedule' | 'notifications'

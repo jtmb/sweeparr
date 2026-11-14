@@ -1,3 +1,4 @@
+import { guardApi } from '@/lib/auth/guard'
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db/client'
 import { getDemoContext, saveDemoSession } from '@/lib/demo'
@@ -6,6 +7,8 @@ export async function POST(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   try {
     const { id } = await params
     const { demoMode, sessionId, session } = await getDemoContext()
@@ -26,8 +29,8 @@ export async function POST(
     if (report.status !== 'EXECUTING') {
       return NextResponse.json({ error: `Report is ${report.status}, not EXECUTING` }, { status: 409 })
     }
-    await prisma.cleanupReport.update({
-      where: { id },
+    await prisma.cleanupReport.updateMany({
+      where: { id, status: 'EXECUTING' },
       data: { pauseRequested: true },
     })
     return NextResponse.json({ ok: true })

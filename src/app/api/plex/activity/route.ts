@@ -1,3 +1,4 @@
+import { guardApi } from '@/lib/auth/guard'
 import { NextResponse } from 'next/server'
 import { getConnectionConfig } from '@/lib/db/queries'
 import { createPlexClient } from '@/lib/plex/client'
@@ -5,6 +6,8 @@ import { getDemoContext } from '@/lib/demo'
 import { DEMO_SESSIONS } from '@/lib/demo/data'
 
 export async function GET() {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   try {
     const { demoMode } = await getDemoContext()
     if (demoMode) {

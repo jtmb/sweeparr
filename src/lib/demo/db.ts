@@ -123,7 +123,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS "PermanentExclusion_plexRatingKey_key"
 `
 
 export function getDemoDbPath(): string {
-  return path.resolve(process.cwd(), 'demo.db')
+  return process.env.DEMO_DATABASE_PATH ?? path.resolve(process.cwd(), 'demo.db')
 }
 
 /**

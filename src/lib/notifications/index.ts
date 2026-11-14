@@ -1,4 +1,5 @@
 import prisma from '@/lib/db/client'
+import { getSetting } from '@/lib/db/queries'
 import { formatBytes } from '@/lib/utils'
 import axios from 'axios'
 import nodemailer from 'nodemailer'
@@ -150,6 +151,7 @@ async function sendApprise(cfg: Record<string, unknown>, payload: NotificationPa
 }
 
 export async function sendNotifications(payload: NotificationPayload) {
+  if (await getSetting('demoMode') === 'true') return
   const [discordCfg, smtpCfg, appriseCfg] = await Promise.all([
     getConfig('discord'),
     getConfig('smtp'),

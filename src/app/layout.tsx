@@ -6,6 +6,9 @@ import Providers from './providers'
 
 const inter = Inter({ subsets: ['latin'] })
 
+// Authentication and demo state are runtime database decisions.
+export const dynamic = 'force-dynamic'
+
 export const metadata: Metadata = {
   title: 'Sweeparr',
   description: 'Plex media cleanup manager',

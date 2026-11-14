@@ -1,6 +1,10 @@
 export async function register() {
   // Only run on the server side (Node.js runtime), not in Edge or browser
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    if (process.env.SWEEPARR_DISABLE_BACKGROUND === '1') return
+    const { purgeOldSessions } = await import('@/lib/demo/session')
+    const cleanup = setInterval(() => { void purgeOldSessions() }, 60_000)
+    cleanup.unref()
     const { initScheduler } = await import('@/lib/scheduler')
     try {
       await initScheduler()

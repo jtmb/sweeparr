@@ -38,6 +38,7 @@ model CleanupReport {
   triggeredBy      String?
   pauseRequested   Boolean             @default(false)
   stopRequested    Boolean             @default(false)
+  allowPlexDeletion Boolean            @default(false)
   items            CleanupReportItem[]
 }
 
@@ -57,6 +58,7 @@ model CleanupReportItem {
   fileSizeBytes BigInt        @default(0)
   reasons       String
   ruleName      String?
+  safetySnapshot String?
   status        String        @default("pending")
   errorMessage  String?
   posterPath    String?
@@ -109,4 +111,12 @@ model PermanentExclusion {
   mediaType     String
   posterPath    String?
   addedAt       DateTime @default(now())
+}
+
+// Non-expiring fence: a crashed executor requires explicit operator recovery.
+model CleanupExecutionLock {
+  id String @id
+  owner String
+  reportId String
+  acquiredAt DateTime @default(now())
 }

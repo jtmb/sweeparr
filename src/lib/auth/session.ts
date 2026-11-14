@@ -1,6 +1,6 @@
 import { SignJWT, jwtVerify } from 'jose'
 
-const EXPIRY_DAYS = 7
+const EXPIRY_DAYS = 1
 
 function toKey(secret: string) {
   return new TextEncoder().encode(secret)
@@ -18,8 +18,8 @@ export async function createSession(secretKey: string): Promise<{ token: string;
 
 export async function verifySession(token: string, secretKey: string): Promise<boolean> {
   try {
-    await jwtVerify(token, toKey(secretKey), { algorithms: ['HS256'] })
-    return true
+    const { payload } = await jwtVerify(token, toKey(secretKey), { algorithms: ['HS256'] })
+    return payload.sub === 'admin'
   } catch {
     return false
   }

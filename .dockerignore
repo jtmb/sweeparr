@@ -5,9 +5,14 @@
 # Node/Next build artifacts
 node_modules
 .next
+src/generated
+next-env.d.ts
 
 # Local runtime/state
 dev.db
+*.db
+*.db-*
+.demo-sessions
 logs
 
 # Env files

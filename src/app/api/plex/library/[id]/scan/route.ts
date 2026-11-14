@@ -1,3 +1,4 @@
+import { guardApi } from '@/lib/auth/guard'
 import { NextResponse, after } from 'next/server'
 import { getConnectionConfig } from '@/lib/db/queries'
 import { scanAndCacheLibrary } from '@/lib/cleanup/engine'
@@ -12,6 +13,8 @@ export async function POST(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const denied = await guardApi()
+  if (denied) return denied
   try {
     const { id } = await params
     const { demoMode } = await getDemoContext()
@@ -53,6 +56,8 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const denied = await guardApi()
+  if (denied) return denied
   try {
     const { id } = await params
     const cached = await getCachedLibrary(id)

@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server'
-import { executeReport } from '@/lib/cleanup/executor'
+import { guardApi } from '@/lib/auth/guard'
+import { NextResponse, after } from 'next/server'
+import { acquireReport, runReport } from '@/lib/cleanup/executor'
 import prisma from '@/lib/db/client'
 import { getDemoContext, saveDemoSession } from '@/lib/demo'
 
@@ -15,6 +16,8 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   try {
     const { id } = await params
     const { demoMode, sessionId, session } = await getDemoContext()
@@ -43,13 +46,6 @@ export async function POST(
     const allowPlexDeletion = body.allowPlexDeletion === true
     const saveExclusionItems = body.saveExclusionItems ?? []
 
-    // Mark excluded items as 'skipped' — executor only processes 'pending' items
-    if (excludeItemIds.length > 0) {
-      await prisma.cleanupReportItem.updateMany({
-        where: { id: { in: excludeItemIds }, reportId: id },
-        data: { status: 'skipped' },
-      })
-    }
 
     // Persist any items the user wants added to the permanent exclusion list
     if (saveExclusionItems.length > 0) {
@@ -75,10 +71,10 @@ export async function POST(
       )
     }
 
-    // Fire-and-forget so the client can start polling for progress immediately
-    executeReport(id, { allowPlexDeletion }).catch((err: unknown) =>
-      console.error(`[execute] Report ${id} failed:`, err)
-    )
+    let owner: string
+    try { owner = await acquireReport(id, { allowPlexDeletion, excludeItemIds }) }
+    catch { return NextResponse.json({ error: 'Report unavailable or another execution is active' }, { status: 409 }) }
+    after(() => runReport(id, owner).then(() => {}).catch(() => {}))
 
     return NextResponse.json({ ok: true }, { status: 202 })
   } catch (err: unknown) {

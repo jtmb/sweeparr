@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { serviceUrl } from '@/lib/security/service-url'
 import type { SonarrSeries } from '@/types'
 
 export interface SonarrEpisodeFile {
@@ -13,7 +14,7 @@ export class SonarrClient {
   private apiKey: string
 
   constructor(baseUrl: string, apiKey: string) {
-    this.baseUrl = baseUrl.replace(/\/$/, '')
+    this.baseUrl = serviceUrl(baseUrl).href.replace(/\/$/, '')
     this.apiKey = apiKey
   }
 
@@ -28,6 +29,7 @@ export class SonarrClient {
   async getSeries(): Promise<SonarrSeries[]> {
     const res = await axios.get<SonarrSeries[]>(this.apiUrl('/series'), {
       headers: this.headers,
+      maxRedirects: 0,
       timeout: 15000,
     })
     return res.data
@@ -36,6 +38,7 @@ export class SonarrClient {
   async getSeriesById(id: number): Promise<SonarrSeries> {
     const res = await axios.get<SonarrSeries>(this.apiUrl(`/series/${id}`), {
       headers: this.headers,
+      maxRedirects: 0,
       timeout: 10000,
     })
     return res.data
@@ -44,6 +47,7 @@ export class SonarrClient {
   async getEpisodeFiles(seriesId: number): Promise<SonarrEpisodeFile[]> {
     const res = await axios.get<SonarrEpisodeFile[]>(this.apiUrl('/episodefile'), {
       headers: this.headers,
+      maxRedirects: 0,
       params: { seriesId },
       timeout: 15000,
     })
@@ -54,8 +58,9 @@ export class SonarrClient {
     try {
       await axios.delete(this.apiUrl(`/series/${id}`), {
         headers: this.headers,
+        maxRedirects: 0,
         params: { deleteFiles },
-        timeout: 0, // no timeout — deletion blocks until files are gone; duration depends on file size
+        timeout: 30000,
       })
     } catch (err: unknown) {
       if (axios.isAxiosError(err) && err.response) {
@@ -85,6 +90,7 @@ export class SonarrClient {
     try {
       const res = await axios.get<{ version: string }>(this.apiUrl('/system/status'), {
         headers: this.headers,
+        maxRedirects: 0,
         timeout: 30000,
       })
       return { ok: true, version: res.data.version }

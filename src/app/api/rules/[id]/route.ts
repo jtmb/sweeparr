@@ -1,3 +1,4 @@
+import { guardApi } from '@/lib/auth/guard'
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db/client'
 import { getDemoContext } from '@/lib/demo'
@@ -6,6 +7,8 @@ export async function PUT(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   try {
     const { demoMode } = await getDemoContext()
     if (demoMode) {
@@ -25,6 +28,8 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   try {
     const { demoMode } = await getDemoContext()
     if (demoMode) {

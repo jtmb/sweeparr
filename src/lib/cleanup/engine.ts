@@ -1,5 +1,7 @@
-import { getConnectionConfig } from '@/lib/db/queries'
+import { getConnectionConfig, getSetting } from '@/lib/db/queries'
+import { connectionFingerprint, stableId, playbackKeys } from './safety'
 import prisma from '@/lib/db/client'
+import type { Prisma } from '@/generated/prisma/client'
 import { createPlexClient } from '@/lib/plex/client'
 import { createRadarrClient } from '@/lib/radarr/client'
 import { createSonarrClient } from '@/lib/sonarr/client'
@@ -35,15 +37,15 @@ export async function getEnrichedLibraryMedia(sectionId: string): Promise<Enrich
   if (!section) return []
 
   const plexMedia = await plex.getSectionMedia(sectionId)
-  const playingKeys = new Set(currentSessions.map((s) => s.ratingKey))
-  const onDeckKeys = new Set(onDeck.map((s) => s.ratingKey))
+  const playingKeys = playbackKeys(currentSessions)
+  const onDeckKeys = playbackKeys(onDeck)
+  const server = (await plex.getServerInfo()).machineIdentifier
+  if (!server) throw new Error('Plex server identity unavailable')
 
   // Build Radarr/Sonarr lookup maps by title+year
   const radarrMovies = radarr ? await radarr.getMovies().catch(() => []) : []
   const sonarrSeries = sonarr ? await sonarr.getSeries().catch(() => []) : []
 
-  const radarrMap = new Map(radarrMovies.map((m) => [`${m.title}|${m.year}`, m]))
-  const sonarrMap = new Map(sonarrSeries.map((s) => [`${s.title}|${s.year}`, s]))
 
   const results: EnrichedMediaItem[] = []
 
@@ -70,7 +72,7 @@ export async function getEnrichedLibraryMedia(sectionId: string): Promise<Enrich
     const isInProgress = onDeckKeys.has(item.ratingKey) && !isCurrentlyPlaying
 
     const mediaType = section.type === 'show' ? 'show' : 'movie'
-    const lookupKey = `${item.title}|${item.year ?? ''}`
+    const mediaId = stableId(item, mediaType === 'movie' ? 'tmdb' : 'tvdb')
 
     let fileSizeBytes = 0
     let radarrId: number | undefined
@@ -78,7 +80,9 @@ export async function getEnrichedLibraryMedia(sectionId: string): Promise<Enrich
     let posterUrl: string | undefined
 
     if (mediaType === 'movie') {
-      const match = radarrMap.get(lookupKey)
+      const matches = mediaId ? radarrMovies.filter(m => m.tmdbId === mediaId) : []
+      if (matches.length > 1) throw new Error('Ambiguous Radarr identity')
+      const match = matches[0]
       if (match) {
         radarrId = match.id
         fileSizeBytes = match.sizeOnDisk ?? 0
@@ -90,7 +94,9 @@ export async function getEnrichedLibraryMedia(sectionId: string): Promise<Enrich
         fileSizeBytes = item.Media?.[0]?.Part?.reduce((s, p) => s + (p.size ?? 0), 0) ?? 0
       }
     } else {
-      const match = sonarrMap.get(lookupKey)
+      const matches = mediaId ? sonarrSeries.filter(s => s.tvdbId === mediaId) : []
+      if (matches.length > 1) throw new Error('Ambiguous Sonarr identity')
+      const match = matches[0]
       if (match) {
         sonarrId = match.id
         fileSizeBytes = match.statistics?.sizeOnDisk ?? 0
@@ -120,6 +126,7 @@ export async function getEnrichedLibraryMedia(sectionId: string): Promise<Enrich
     }
 
     results.push({
+      safetyIdentity: item.guid ? { guid: item.guid, stableId: mediaId, server, connections: connectionFingerprint(cfg) } : undefined,
       plexRatingKey: item.ratingKey,
       title: item.title,
       year: item.year,
@@ -233,6 +240,7 @@ export async function generateReport(
   triggeredBy: 'manual' | 'scheduled' = 'manual',
   ruleIds?: string[]
 ): Promise<string> {
+  if (await getSetting('demoMode') === 'true') throw new Error('Real report generation is disabled in demo mode')
   // When ruleIds is provided, run only those rules (regardless of enabled state).
   // Otherwise fall back to all enabled rules.
   const rules = ruleIds && ruleIds.length > 0
@@ -243,13 +251,12 @@ export async function generateReport(
   }
 
   const sectionIds = await getAllCachedSectionIds()
+  const exclusions = new Set((await prisma.permanentExclusion.findMany()).map(e => e.plexRatingKey))
   if (sectionIds.length === 0) {
     throw new Error('No library data cached. Scan at least one library first.')
   }
 
-  const report = await prisma.cleanupReport.create({
-    data: { status: 'DRAFT', triggeredBy },
-  })
+  const pendingItems: Prisma.CleanupReportItemCreateWithoutReportInput[] = []
 
   let totalItems = 0
   let totalSizeBytes = BigInt(0)
@@ -259,6 +266,8 @@ export async function generateReport(
     if (!cache || cache.media.length === 0) continue
 
     for (const item of cache.media) {
+      if (exclusions.has(item.plexRatingKey)) continue
+      if (!item.safetyIdentity) throw new Error('Library safety identity missing: rescan before generating reports')
       // Apply rules — use global rules or library-specific ones.
       // Match on sectionId (key, e.g. "1") OR section title (e.g. "Movies") to
       // handle rules created before the dropdown was fixed to store the key.
@@ -292,9 +301,7 @@ export async function generateReport(
         (item.mediaType === 'movie' && item.radarrId) ||
         (item.mediaType === 'show' && item.sonarrId)
 
-      await prisma.cleanupReportItem.create({
-        data: {
-          reportId: report.id,
+      pendingItems.push({
           mediaType: item.mediaType,
           radarrId: item.radarrId ?? null,
           sonarrId: item.sonarrId ?? null,
@@ -307,9 +314,9 @@ export async function generateReport(
           fileSizeBytes: BigInt(item.fileSizeBytes),
           reasons: arrManaged ? JSON.stringify(reasons) : JSON.stringify([...reasons, 'NO_ARR_MATCH']),
           ruleName: matchedRule?.name ?? null,
+          safetySnapshot: JSON.stringify({ ...item.safetyIdentity, rule: matchedRule }),
           posterPath: item.posterUrl ?? null,
           status: 'pending',
-        },
       })
 
       totalItems++
@@ -317,10 +324,12 @@ export async function generateReport(
     }
   }
 
-  await prisma.cleanupReport.update({
-    where: { id: report.id },
+  // A nested create is one transaction: no partially built report is visible.
+  const report = await prisma.cleanupReport.create({
     data: {
       status: 'READY',
+      triggeredBy,
+      items: { create: pendingItems },
       totalItems,
       totalSizeBytes,
     },

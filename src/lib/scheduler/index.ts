@@ -27,6 +27,7 @@ export async function initScheduler() {
   backupTask?.stop()
   backupTask = null
   clearSchedules()
+  if (await getSetting('demoMode') === 'true') return
 
   const config = await prisma.scheduleConfig.findFirst()
   if (!config) return
@@ -36,6 +37,7 @@ export async function initScheduler() {
     appLog('info', 'scheduler', `Cleanup schedule registered: ${config.cronExpr}`)
     registerSchedule({ id: 'cleanup', label: 'Cleanup', cronExpr: config.cronExpr, enabled: true })
     cleanupTask = cron.schedule(config.cronExpr, async () => {
+      if (await getSetting('demoMode') === 'true') return
       appLog('info', 'cleanup', 'Scheduled cleanup starting…')
       markJobStarted('cleanup', 'Cleanup')
       try {
@@ -66,6 +68,7 @@ export async function initScheduler() {
     appLog('info', 'scheduler', `Library scan schedule registered: ${config.libraryScanCron}`)
     registerSchedule({ id: 'library-scan', label: 'Library Scan', cronExpr: config.libraryScanCron, enabled: true })
     libraryScanTask = cron.schedule(config.libraryScanCron, async () => {
+      if (await getSetting('demoMode') === 'true') return
       appLog('info', 'library-scan', 'Scheduled library scan starting…')
       markJobStarted('library-scan', 'Library Scan')
       try {
@@ -98,6 +101,7 @@ export async function initScheduler() {
     appLog('info', 'scheduler', `Backup schedule registered: ${backupCron}`)
     registerSchedule({ id: 'db-backup', label: 'Database Backup', cronExpr: backupCron, enabled: true })
     backupTask = cron.schedule(backupCron, async () => {
+      if (await getSetting('demoMode') === 'true') return
       appLog('info', 'backup', 'Scheduled database backup starting…')
       markJobStarted('db-backup', 'Database Backup')
       try {

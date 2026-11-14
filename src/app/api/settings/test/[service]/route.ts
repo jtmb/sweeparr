@@ -1,3 +1,4 @@
+import { guardApi } from '@/lib/auth/guard'
 import { NextResponse } from 'next/server'
 import { getConnectionConfig } from '@/lib/db/queries'
 import { createPlexClient } from '@/lib/plex/client'
@@ -10,6 +11,8 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ service: string }> }
 ) {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   try {
     const { service } = await params
     const { demoMode } = await getDemoContext()
@@ -23,7 +26,7 @@ export async function POST(
 
     if (service === 'plex') {
       const url = pickString(body.plexUrl) || stored.plexUrl
-      const token = pickString(body.plexToken) || stored.plexToken
+      const token = pickString(body.plexToken) || (url === stored.plexUrl ? stored.plexToken : '')
       if (!url || !token) return NextResponse.json({ ok: false, error: 'URL and token required' })
       try {
         const plex = createPlexClient(url, token)
@@ -37,7 +40,7 @@ export async function POST(
 
     if (service === 'radarr') {
       const url = pickString(body.radarrUrl) || stored.radarrUrl
-      const key = pickString(body.radarrApiKey) || stored.radarrApiKey
+      const key = pickString(body.radarrApiKey) || (url === stored.radarrUrl ? stored.radarrApiKey : '')
       if (!url || !key) return NextResponse.json({ ok: false, error: 'URL and API key required' })
       const result = await createRadarrClient(url, key).testConnection()
       return NextResponse.json(result)
@@ -45,7 +48,7 @@ export async function POST(
 
     if (service === 'sonarr') {
       const url = pickString(body.sonarrUrl) || stored.sonarrUrl
-      const key = pickString(body.sonarrApiKey) || stored.sonarrApiKey
+      const key = pickString(body.sonarrApiKey) || (url === stored.sonarrUrl ? stored.sonarrApiKey : '')
       if (!url || !key) return NextResponse.json({ ok: false, error: 'URL and API key required' })
       const result = await createSonarrClient(url, key).testConnection()
       return NextResponse.json(result)

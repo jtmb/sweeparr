@@ -11,6 +11,11 @@ export interface PlexLibrary {
 }
 
 export interface PlexMediaItem {
+  guid?: string
+  Guid?: Array<{ id: string }>
+  grandparentRatingKey?: string
+  parentRatingKey?: string
+  viewOffset?: number
   ratingKey: string
   key: string
   title: string
@@ -47,6 +52,8 @@ export interface PlexWatchEvent {
 }
 
 export interface PlexSession {
+  grandparentRatingKey?: string
+  parentRatingKey?: string
   ratingKey: string
   key: string
   title: string
@@ -109,6 +116,7 @@ export interface PlexSession {
 // ─── Radarr ──────────────────────────────────────────────────────────────────
 
 export interface RadarrMovie {
+  tmdbId?: number
   id: number
   title: string
   year: number
@@ -128,6 +136,7 @@ export interface RadarrMovie {
 // ─── Sonarr ──────────────────────────────────────────────────────────────────
 
 export interface SonarrSeries {
+  tvdbId?: number
   id: number
   title: string
   year: number
@@ -154,6 +163,7 @@ export interface UserWatchEntry {
 }
 
 export interface EnrichedMediaItem {
+  safetyIdentity?: { guid: string; stableId: number | null; server: string; connections: string }
   plexRatingKey: string
   title: string
   year?: number
@@ -187,7 +197,7 @@ export interface CleanupCandidate extends EnrichedMediaItem {
 }
 
 export type ReportStatus = 'DRAFT' | 'READY' | 'EXECUTING' | 'PAUSED' | 'COMPLETED' | 'FAILED'
-export type ItemStatus = 'pending' | 'deleted' | 'skipped' | 'error'
+export type ItemStatus = 'pending' | 'deleting' | 'deleted' | 'skipped' | 'error' | 'unknown'
 
 export interface ReportSummary {
   id: string

@@ -1,3 +1,4 @@
+import { guardApi } from '@/lib/auth/guard'
 import { NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 import { hash } from 'bcryptjs'
@@ -5,13 +6,17 @@ import prisma from '@/lib/db/client'
 import { getDemoContext } from '@/lib/demo'
 
 async function getOrCreateAuth() {
-  const existing = await prisma.authConfig.findFirst()
-  if (existing) return existing
-  const secretKey = randomBytes(32).toString('hex')
-  return prisma.authConfig.create({ data: { secretKey } })
+  return prisma.$transaction(async tx => {
+    const existing = await tx.authConfig.findFirst()
+    if (existing) return existing
+    const secretKey = randomBytes(32).toString('hex')
+    return tx.authConfig.create({ data: { secretKey } })
+  })
 }
 
 export async function GET() {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   const { demoMode } = await getDemoContext()
   if (demoMode) {
     // Return a safe fake — never expose real auth config to demo visitors
@@ -27,6 +32,8 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
+  const denied = await guardApi()
+  if (denied) return denied
   const { demoMode } = await getDemoContext()
   if (demoMode) {
     return NextResponse.json({ error: 'Auth settings cannot be changed in demo mode' }, { status: 403 })
@@ -35,7 +42,7 @@ export async function PUT(req: Request) {
   const body = (await req.json()) as { enabled?: boolean; username?: string; password?: string }
   const auth = await getOrCreateAuth()
 
-  const updates: Record<string, unknown> = {}
+  const updates: Record<string, unknown> = { secretKey: randomBytes(32).toString('hex') }
 
   if (typeof body.username === 'string') {
     const username = body.username.trim()

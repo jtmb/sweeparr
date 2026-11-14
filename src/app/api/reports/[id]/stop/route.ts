@@ -1,3 +1,4 @@
+import { guardApi } from '@/lib/auth/guard'
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db/client'
 import { getDemoContext, saveDemoSession } from '@/lib/demo'
@@ -6,6 +7,8 @@ export async function POST(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   try {
     const { id } = await params
     const { demoMode, sessionId, session } = await getDemoContext()
@@ -28,14 +31,14 @@ export async function POST(
     }
     if (report.status === 'EXECUTING') {
       // Signal executor to stop after current item
-      await prisma.cleanupReport.update({
-        where: { id },
+      await prisma.cleanupReport.updateMany({
+        where: { id, status: 'EXECUTING' },
         data: { stopRequested: true },
       })
     } else {
       // Already paused — finalize immediately
-      await prisma.cleanupReport.update({
-        where: { id },
+      await prisma.cleanupReport.updateMany({
+        where: { id, status: 'PAUSED' },
         data: { status: 'COMPLETED', executedAt: new Date(), pauseRequested: false, stopRequested: false },
       })
     }
