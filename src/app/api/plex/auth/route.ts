@@ -1,3 +1,4 @@
+import { guardApi } from '@/lib/auth/guard'
 import { NextResponse } from 'next/server'
 import axios from 'axios'
 import { getDemoContext } from '@/lib/demo'
@@ -13,6 +14,8 @@ const PLEX_HEADERS = {
 
 // POST /api/plex/auth — create a PIN and return the auth URL
 export async function POST() {
+  const denied = await guardApi()
+  if (denied) return denied
   try {
     const { demoMode } = await getDemoContext()
     if (demoMode) {
@@ -80,6 +83,8 @@ async function probeServers(
 
 // GET /api/plex/auth?pinId=... — poll for the auth token; returns servers on success
 export async function GET(req: Request) {
+  const denied = await guardApi()
+  if (denied) return denied
   const { demoMode } = await getDemoContext()
   if (demoMode) {
     return NextResponse.json({ authenticated: false })

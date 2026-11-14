@@ -1,9 +1,12 @@
+import { guardApi } from '@/lib/auth/guard'
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db/client'
 import { getDemoContext, demoPrisma } from '@/lib/demo'
 
 // Rules CRUD
 export async function GET() {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   const { demoMode } = await getDemoContext()
   const db = demoMode ? demoPrisma : prisma
   const rules = await db.cleanupRule.findMany({ orderBy: { createdAt: 'asc' } })
@@ -15,6 +18,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   try {
     const { demoMode } = await getDemoContext()
     if (demoMode) {

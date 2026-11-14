@@ -1,4 +1,5 @@
 import prisma from '@/lib/db/client'
+import { htmlJson } from './encoding'
 
 function fmtBytes(b: number): string {
   if (b >= 1e12) return (b / 1e12).toFixed(2) + ' TB'
@@ -32,12 +33,12 @@ function renderReportHtml(
 
   const deletedCount = items.filter((i) => i.status === 'deleted').length
   const skippedCount = items.filter((i) => i.status === 'skipped').length
-  const errorCount = items.filter((i) => i.status === 'error').length
+  const errorCount = items.filter((i) => i.status === 'error' || i.status === 'unknown').length
   const pendingCount = items.filter((i) => i.status === 'pending').length
   const freedBytes = items.filter((i) => i.status === 'deleted').reduce((s, i) => s + i.fileSizeBytes, 0)
   const totalBytes = items.reduce((s, i) => s + i.fileSizeBytes, 0)
 
-  const itemsJson = JSON.stringify(items).replace(/<\/script>/gi, '<\\/script>')
+  const itemsJson = htmlJson(items)
 
   const summaryHtml =
     isTest || meta.status === 'COMPLETED'
@@ -336,7 +337,7 @@ export function generateEmailBodyHtml(
 ): string {
   const deletedCount = items.filter((i) => i.status === 'deleted').length
   const skippedCount = items.filter((i) => i.status === 'skipped').length
-  const errorCount = items.filter((i) => i.status === 'error').length
+  const errorCount = items.filter((i) => i.status === 'error' || i.status === 'unknown').length
   const freedBytes = items.filter((i) => i.status === 'deleted').reduce((s, i) => s + i.fileSizeBytes, 0)
 
   const sorted = items.slice().sort((a, b) => b.fileSizeBytes - a.fileSizeBytes)

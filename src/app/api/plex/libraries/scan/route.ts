@@ -1,3 +1,4 @@
+import { guardApi } from '@/lib/auth/guard'
 import { NextResponse, after } from 'next/server'
 import {
   readLibraryListCache,
@@ -11,6 +12,8 @@ import { getDemoContext } from '@/lib/demo'
 
 // POST — force a rescan of the library list + trigger a Plex library file scan
 export async function POST() {
+  const denied = await guardApi()
+  if (denied) return denied
   try {
     const { demoMode } = await getDemoContext()
     if (demoMode) {
@@ -50,6 +53,8 @@ export async function POST() {
 
 // GET — poll for scan status
 export async function GET() {
+  const denied = await guardApi()
+  if (denied) return denied
   try {
     const cached = await readLibraryListCache()
     return NextResponse.json({

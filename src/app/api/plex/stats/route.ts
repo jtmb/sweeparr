@@ -1,3 +1,4 @@
+import { guardApi } from '@/lib/auth/guard'
 import { NextResponse } from 'next/server'
 import { getAllCachedSectionIds, getCachedLibrary } from '@/lib/cache/library'
 import { readLibraryListCache } from '@/lib/cache/libraryList'
@@ -18,6 +19,8 @@ function deserializeDemoMedia(raw: Record<string, unknown>): EnrichedMediaItem {
 }
 
 export async function GET() {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   try {
     const { demoMode } = await getDemoContext()
 

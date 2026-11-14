@@ -28,9 +28,7 @@ let _cacheExpiresAt = 0
 const CACHE_TTL_MS = 30_000
 
 export async function isDemoMode(): Promise<boolean> {
-  if (_cachedDemoMode !== null && Date.now() < _cacheExpiresAt) {
-    return _cachedDemoMode
-  }
+  // Security state must not lag across workers when demo mode changes.
   const val = await getSetting('demoMode')
   _cachedDemoMode = val === 'true'
   _cacheExpiresAt = Date.now() + CACHE_TTL_MS

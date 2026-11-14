@@ -1,3 +1,4 @@
+import { guardApi } from '@/lib/auth/guard'
 import { NextResponse, after } from 'next/server'
 import { getConnectionConfig } from '@/lib/db/queries'
 import {
@@ -8,6 +9,8 @@ import {
 import { getDemoContext, demoPrisma } from '@/lib/demo'
 
 export async function GET() {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   try {
     const { demoMode } = await getDemoContext()
 

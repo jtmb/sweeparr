@@ -1,3 +1,4 @@
+import { guardApi } from '@/lib/auth/guard'
 import { getRecentLogs, subscribeToLogs } from '@/lib/logger'
 import { isDemoMode } from '@/lib/demo'
 
@@ -5,6 +6,8 @@ export const dynamic = 'force-dynamic'
 
 // GET /api/logs/stream — Server-Sent Events stream of log entries
 export async function GET() {
+  const denied = await guardApi()
+  if (denied) return denied
   if (await isDemoMode()) {
     // Return an empty SSE stream — demo visitors must not see real server logs
     return new Response('', { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' } })

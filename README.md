@@ -56,6 +56,31 @@ docker compose up -d
 
 Open [http://localhost:3000](http://localhost:3000) and configure your Plex, Radarr, and Sonarr connections in **Settings → Connections**.
 
+### Local image verification
+
+```bash
+sudo docker build --progress=plain -t sweeparr:security-local .
+python3 tests/container-smoke.py
+```
+
+The smoke test uses a disposable Docker volume and a loopback-only port. It checks
+fresh migrations, non-root execution, authentication, demo storage/isolation,
+restart persistence and fail-closed migration errors, then removes its test
+containers and volume. The locally built image is retained. No workflow or image
+publication is involved.
+
+Container state lives under `/app/data`: the main database, demo database and
+visitor-session files. The entrypoint runs migrations before starting the server
+and exits on migration failure.
+
+The image uses Node.js 22. If a host VPN prevents build containers from reaching
+package registries, add `--network=host` to the local build command; this does not
+change the runtime container's network or loopback-only test port.
+
+If Docker bridge forwarding is also unavailable for runtime tests, use
+`SWEEPARR_TEST_HOST_NETWORK=1 python3 tests/container-smoke.py`. This mode binds
+Next.js explicitly to `127.0.0.1:3408` inside a host-networked test container.
+
 ---
 
 ## Environment Variables

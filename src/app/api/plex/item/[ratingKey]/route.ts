@@ -1,3 +1,4 @@
+import { guardApi } from '@/lib/auth/guard'
 import { NextRequest, NextResponse } from 'next/server'
 import { getConnectionConfig } from '@/lib/db/queries'
 import { createPlexClient } from '@/lib/plex/client'
@@ -34,6 +35,8 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ ratingKey: string }> }
 ) {
+  const denied = await guardApi()
+  if (denied) return denied
   const { ratingKey } = await params
 
   if (!ratingKey || !/^\d+$/.test(ratingKey)) {

@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { serviceUrl } from '@/lib/security/service-url'
 import type { PlexLibrary, PlexMediaItem, PlexWatchEvent, PlexSession } from '@/types'
 
 interface PlexResponse<T> {
@@ -10,7 +11,7 @@ export class PlexClient {
   private token: string
 
   constructor(baseUrl: string, token: string) {
-    this.baseUrl = baseUrl.replace(/\/$/, '')
+    this.baseUrl = serviceUrl(baseUrl).href.replace(/\/$/, '')
     this.token = token
   }
 
@@ -26,14 +27,15 @@ export class PlexClient {
   private async get<T>(path: string, params?: Record<string, string | number>): Promise<T> {
     const response = await axios.get<PlexResponse<T>>(`${this.baseUrl}${path}`, {
       headers: this.headers,
+      maxRedirects: 0,
       params: { ...params },
       timeout: 15000,
     })
     return response.data.MediaContainer
   }
 
-  async getServerInfo(): Promise<{ friendlyName: string; version: string }> {
-    const data = await this.get<{ friendlyName: string; version: string }>('/')
+  async getServerInfo(): Promise<{ friendlyName: string; version: string; machineIdentifier: string }> {
+    const data = await this.get<{ friendlyName: string; version: string; machineIdentifier: string }>('/')
     return data
   }
 
@@ -53,7 +55,7 @@ export class PlexClient {
 
   async getSectionMedia(sectionId: string): Promise<PlexMediaItem[]> {
     const data = await this.get<{ Metadata?: PlexMediaItem[] }>(
-      `/library/sections/${sectionId}/all`
+      `/library/sections/${sectionId}/all`, { includeGuids: 1 }
     )
     return data.Metadata ?? []
   }
@@ -112,6 +114,13 @@ export class PlexClient {
     return data.Metadata ?? []
   }
 
+  async getMetadata(ratingKey: string): Promise<PlexMediaItem> {
+    const data = await this.get<{ Metadata?: PlexMediaItem[] }>(`/library/metadata/${encodeURIComponent(ratingKey)}`, { includeGuids: 1 })
+    const item = data.Metadata?.[0]
+    if (!item || item.ratingKey !== ratingKey) throw new Error('Plex identity unavailable')
+    return item
+  }
+
   async getOnDeck(): Promise<PlexMediaItem[]> {
     const data = await this.get<{ Metadata?: PlexMediaItem[] }>('/library/onDeck')
     return data.Metadata ?? []
@@ -136,6 +145,7 @@ export class PlexClient {
     try {
       await axios.get(`${this.baseUrl}/library/sections/${sectionKey}/refresh`, {
         headers: this.headers,
+        maxRedirects: 0,
         timeout: 10000,
       })
       return true
@@ -152,7 +162,8 @@ export class PlexClient {
     try {
       await axios.delete(`${this.baseUrl}/library/metadata/${ratingKey}`, {
         headers: this.headers,
-        timeout: 0, // no timeout — Plex blocks while deleting files from disk
+        maxRedirects: 0,
+        timeout: 30000,
       })
     } catch (err: unknown) {
       if (axios.isAxiosError(err) && err.response) {
@@ -180,6 +191,7 @@ export class PlexClient {
   async terminateSession(sessionId: string, reason = 'Stream terminated by server'): Promise<void> {
     await axios.get(`${this.baseUrl}/status/sessions/terminate`, {
       headers: this.headers,
+      maxRedirects: 0,
       params: { sessionId, reason },
       timeout: 10000,
     })

@@ -1,3 +1,4 @@
+import { guardApi } from '@/lib/auth/guard'
 import { NextResponse } from 'next/server'
 import { getRunningJobs, nextCronDate } from '@/lib/scheduler/job-status'
 import { getRecentLogs, clearLogs } from '@/lib/logger'
@@ -11,6 +12,8 @@ export const dynamic = 'force-dynamic'
 // Schedule state is read from the DB (source of truth) because Turbopack runs
 // routes in isolated worker contexts — globalThis is not shared between workers.
 export async function GET() {
+  const denied = await guardApi()
+  if (denied) return denied
   const demo = await isDemoMode()
   const running = demo ? [] : getRunningJobs()
 
@@ -61,6 +64,8 @@ export async function GET() {
 
 // DELETE /api/jobs/status — clear the in-memory log buffer
 export async function DELETE() {
+  const denied = await guardApi()
+  if (denied) return denied
   if (await isDemoMode()) return NextResponse.json({ ok: true, cleared: 0 })
   const count = getRecentLogs().length
   clearLogs()

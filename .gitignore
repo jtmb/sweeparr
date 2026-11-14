@@ -55,3 +55,6 @@ app.log
 logs/
 backups/
 logs/app.log
+# External build/generated-directory symlinks used by local verification.
+/.next
+/src/generated

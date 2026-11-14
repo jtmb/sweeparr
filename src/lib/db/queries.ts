@@ -20,6 +20,7 @@ export async function getSettings(keys: string[]): Promise<Record<string, string
 }
 
 export async function getConnectionConfig(): Promise<ConnectionConfig> {
+  if (await getSetting('demoMode') === 'true') throw new Error('Real integrations are disabled in demo mode')
   const keys = ['plexUrl', 'plexToken', 'radarrUrl', 'radarrApiKey', 'sonarrUrl', 'sonarrApiKey']
   const map = await getSettings(keys)
   return {

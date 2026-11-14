@@ -1,25 +1,24 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { compare } from 'bcryptjs'
-import { randomBytes } from 'crypto'
 import prisma from '@/lib/db/client'
 import { createSession } from '@/lib/auth/session'
+import { takeBudget } from '@/lib/auth/rate-limit'
+import { boundedJson } from '@/lib/security/json'
 
 export async function POST(req: Request) {
-  const { username, password } = (await req.json()) as { username?: string; password?: string }
+  if (!await takeBudget('login', 5, 60_000)) {
+    return NextResponse.json({ error: 'Too many login attempts' }, { status: 429, headers: { 'Retry-After': '60' } })
+  }
+  if (Number(req.headers.get('content-length')) > 4096) return new Response(null, { status: 413 })
+  const { username, password } = (await boundedJson(req, 4096)) as { username?: string; password?: string }
 
-  if (!username || !password) {
+  if (typeof username !== 'string' || typeof password !== 'string' || !username || !password || username.length > 128 || password.length > 1024) {
     return NextResponse.json({ error: 'Username and password required' }, { status: 400 })
   }
 
-  // Upsert AuthConfig to ensure a row exists
-  let auth = await prisma.authConfig.findFirst()
-  if (!auth) {
-    const secretKey = randomBytes(32).toString('hex')
-    auth = await prisma.authConfig.create({ data: { secretKey } })
-  }
-
-  if (!auth.enabled) {
+  const auth = await prisma.authConfig.findFirst()
+  if (!auth?.enabled) {
     return NextResponse.json({ error: 'Auth is not enabled' }, { status: 403 })
   }
 

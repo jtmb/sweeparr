@@ -1,9 +1,13 @@
+import { guardApi } from '@/lib/auth/guard'
+import { boundedJson } from '@/lib/security/json'
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db/client'
 import { getDemoContext, saveDemoSession } from '@/lib/demo'
 import type { DemoExclusion } from '@/lib/demo/session'
 
 export async function GET() {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   try {
     const { demoMode, session } = await getDemoContext()
 
@@ -50,10 +54,12 @@ interface ExclusionInput {
 }
 
 export async function POST(req: Request) {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   try {
     const { demoMode, sessionId, session } = await getDemoContext()
-    const body = await req.json() as { items: ExclusionInput[] }
-    if (!Array.isArray(body?.items) || body.items.length === 0) {
+    const body = await boundedJson(req) as { items: ExclusionInput[] }
+    if (!Array.isArray(body?.items) || body.items.length === 0 || body.items.length > 100 || body.items.some(i => !i || typeof i.plexRatingKey !== 'string' || typeof i.title !== 'string' || i.title.length > 512 || i.plexRatingKey.length > 128 || !['movie', 'show'].includes(i.mediaType) || (i.posterPath != null && (typeof i.posterPath !== 'string' || i.posterPath.length > 2048)))) {
       return NextResponse.json({ error: 'items array required' }, { status: 400 })
     }
 

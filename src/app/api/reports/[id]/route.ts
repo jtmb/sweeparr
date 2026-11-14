@@ -1,3 +1,4 @@
+import { guardApi } from '@/lib/auth/guard'
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db/client'
 import { getDemoContext, saveDemoSession } from '@/lib/demo'
@@ -6,6 +7,8 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   try {
     const { id } = await params
     const { demoMode, sessionId, session } = await getDemoContext()
@@ -62,6 +65,8 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   try {
     const { id } = await params
     const { demoMode, sessionId, session } = await getDemoContext()
@@ -74,7 +79,8 @@ export async function DELETE(
       return NextResponse.json({ ok: true })
     }
 
-    await prisma.cleanupReport.delete({ where: { id } })
+    const removed = await prisma.cleanupReport.deleteMany({ where: { id, status: { in: ['READY', 'COMPLETED'] }, items: { none: { status: { in: ['unknown', 'deleting'] } } } } })
+    if (!removed.count) return NextResponse.json({ error: 'Report is active or unavailable' }, { status: 409 })
     return NextResponse.json({ ok: true })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)

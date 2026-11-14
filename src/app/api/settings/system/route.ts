@@ -1,3 +1,4 @@
+import { guardApi } from '@/lib/auth/guard'
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { getSetting, setSetting } from '@/lib/db/queries'
@@ -9,6 +10,8 @@ export const dynamic = 'force-dynamic'
 
 // GET /api/settings/system — returns current system settings + whether caller is an admin
 export async function GET() {
+  const denied = await guardApi('demo')
+  if (denied) return denied
   const demoMode = await isDemoMode()
 
   // Determine if the caller has a valid admin session
@@ -28,6 +31,8 @@ export async function GET() {
 
 // PUT /api/settings/system — toggle demo mode
 export async function PUT(req: Request) {
+  const denied = await guardApi('system')
+  if (denied) return denied
   try {
     const body = (await req.json()) as { demoMode?: boolean }
 
@@ -35,6 +40,8 @@ export async function PUT(req: Request) {
       const cookieStore = await cookies()
 
       if (body.demoMode) {
+        const auth = await prisma.authConfig.findFirst()
+        if (!auth?.enabled) return NextResponse.json({ error: 'Enable administrator authentication before demo mode' }, { status: 400 })
         // Enable demo mode
         await setSetting('demoMode', 'true')
         invalidateDemoModeCache()

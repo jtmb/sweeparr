@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { serviceUrl } from '@/lib/security/service-url'
 import type { RadarrMovie } from '@/types'
 
 export class RadarrClient {
@@ -6,7 +7,7 @@ export class RadarrClient {
   private apiKey: string
 
   constructor(baseUrl: string, apiKey: string) {
-    this.baseUrl = baseUrl.replace(/\/$/, '')
+    this.baseUrl = serviceUrl(baseUrl).href.replace(/\/$/, '')
     this.apiKey = apiKey
   }
 
@@ -21,6 +22,7 @@ export class RadarrClient {
   async getMovies(): Promise<RadarrMovie[]> {
     const res = await axios.get<RadarrMovie[]>(this.apiUrl('/movie'), {
       headers: this.headers,
+      maxRedirects: 0,
       timeout: 15000,
     })
     return res.data
@@ -29,6 +31,7 @@ export class RadarrClient {
   async getMovie(id: number): Promise<RadarrMovie> {
     const res = await axios.get<RadarrMovie>(this.apiUrl(`/movie/${id}`), {
       headers: this.headers,
+      maxRedirects: 0,
       timeout: 10000,
     })
     return res.data
@@ -38,8 +41,9 @@ export class RadarrClient {
     try {
       await axios.delete(this.apiUrl(`/movie/${id}`), {
         headers: this.headers,
+        maxRedirects: 0,
         params: { deleteFiles },
-        timeout: 0, // no timeout — deletion blocks until files are gone; duration depends on file size
+        timeout: 30000,
       })
     } catch (err: unknown) {
       if (axios.isAxiosError(err) && err.response) {
@@ -69,6 +73,7 @@ export class RadarrClient {
     try {
       const res = await axios.get<{ version: string }>(this.apiUrl('/system/status'), {
         headers: this.headers,
+        maxRedirects: 0,
         timeout: 8000,
       })
       return { ok: true, version: res.data.version }

@@ -3,167 +3,116 @@ import { getConnectionConfig } from '@/lib/db/queries'
 import { createPlexClient } from '@/lib/plex/client'
 import { createRadarrClient } from '@/lib/radarr/client'
 import { createSonarrClient } from '@/lib/sonarr/client'
+import { connectionFingerprint, playbackKeys, stableId } from './safety'
+import { randomUUID } from 'crypto'
 import { sendNotifications } from '@/lib/notifications'
-import { appLog } from '@/lib/logger'
-import axios from 'axios'
 
-export async function executeReport(
-  reportId: string,
-  options?: { allowPlexDeletion?: boolean }
-): Promise<{
-  deleted: number
-  failed: number
-  skipped: number
-}> {
-  const report = await prisma.cleanupReport.findUnique({
-    where: { id: reportId },
-    include: { items: { where: { status: 'pending' } } },
-  })
+type Options = { allowPlexDeletion?: boolean; resume?: boolean; excludeItemIds?: string[] }
 
-  if (!report) throw new Error('Report not found')
-  if (!['READY', 'DRAFT'].includes(report.status)) {
-    throw new Error(`Report is in ${report.status} state and cannot be executed`)
-  }
-
-  appLog('info', 'cleanup', `Executing report ${reportId} — ${report.items.length} item(s) pending`)
-
-  await prisma.cleanupReport.update({
-    where: { id: reportId },
-    data: { status: 'EXECUTING', pauseRequested: false, stopRequested: false },
-  })
-
-  const cfg = await getConnectionConfig()
-  const plex = cfg.plexUrl ? createPlexClient(cfg.plexUrl, cfg.plexToken) : null
-  const radarr = cfg.radarrUrl ? createRadarrClient(cfg.radarrUrl, cfg.radarrApiKey) : null
-  const sonarr = cfg.sonarrUrl ? createSonarrClient(cfg.sonarrUrl, cfg.sonarrApiKey) : null
-  const allowPlexDeletion = options?.allowPlexDeletion === true
-
-  // Helper: try Plex fallback deletion. Throws with a meaningful message on failure.
-  const tryPlexFallback = async (plexRatingKey: string | null, title: string): Promise<void> => {
-    if (!plex || !plexRatingKey) {
-      throw new Error('Not found in arr and Plex deletion is not available')
-    }
-    await plex.deleteMetadata(plexRatingKey)
-  }
-
-  let deleted = 0
-  let failed = 0
-  let skipped = 0
-
-  for (const item of report.items) {
-    // Check for pause or stop request before processing each item
-    const currentReport = await prisma.cleanupReport.findUnique({
-      where: { id: reportId },
-      select: { pauseRequested: true, stopRequested: true },
+/** One durable global fence also prevents two different reports deleting the same
+ * object. No timed takeover: an expired lease cannot prove a DELETE stopped. */
+export async function acquireReport(reportId: string, options: Options = {}): Promise<string> {
+  const owner = randomUUID()
+  await prisma.$transaction(async tx => {
+    await tx.cleanupExecutionLock.create({ data: { id: 'global', owner, reportId } })
+    const changed = await tx.cleanupReport.updateMany({
+      where: { id: reportId, status: options.resume ? 'PAUSED' : 'READY' },
+      data: { status: 'EXECUTING', pauseRequested: false, stopRequested: false,
+        ...(!options.resume ? { allowPlexDeletion: options.allowPlexDeletion === true } : {}) },
     })
-    if (currentReport?.stopRequested) {
-      await prisma.cleanupReport.update({
-        where: { id: reportId },
-        data: { status: 'COMPLETED', executedAt: new Date(), pauseRequested: false, stopRequested: false },
-      })
-      appLog('info', 'cleanup', `Report ${reportId} stopped — deleted ${deleted}, skipped ${skipped}, failed ${failed}`)
-      return { deleted, failed, skipped }
-    }
-    if (currentReport?.pauseRequested) {
-      await prisma.cleanupReport.update({
-        where: { id: reportId },
-        data: { status: 'PAUSED', pauseRequested: false },
-      })
-      appLog('info', 'cleanup', `Report ${reportId} paused — deleted ${deleted} so far`)
-      return { deleted, failed, skipped }
-    }
-
-    try {
-      let didDelete = false
-
-      if (item.mediaType === 'movie' && item.radarrId && radarr) {
-        try {
-          await radarr.deleteMovie(item.radarrId, true)
-          didDelete = true
-        } catch (err: unknown) {
-          const isNotFound =
-            (axios.isAxiosError(err) && err.response?.status === 404) ||
-            (err instanceof Error && (err as Error & { notFoundInArr?: boolean }).notFoundInArr === true)
-          if (isNotFound) {
-            await tryPlexFallback(item.plexRatingKey, item.title)
-            didDelete = true
-          } else {
-            throw err
-          }
-        }
-      } else if (item.mediaType === 'show' && item.sonarrId && sonarr) {
-        try {
-          await sonarr.deleteSeries(item.sonarrId, true)
-          didDelete = true
-        } catch (err: unknown) {
-          const isNotFound =
-            (axios.isAxiosError(err) && err.response?.status === 404) ||
-            (err instanceof Error && (err as Error & { notFoundInArr?: boolean }).notFoundInArr === true)
-          if (isNotFound) {
-            await tryPlexFallback(item.plexRatingKey, item.title)
-            didDelete = true
-          } else {
-            throw err
-          }
-        }
-      } else if (item.plexRatingKey && plex) {
-        // No arr ID at all — go straight to Plex if available
-        await tryPlexFallback(item.plexRatingKey, item.title)
-        didDelete = true
-      }
-
-      if (didDelete) {
-        await prisma.cleanupReportItem.update({
-          where: { id: item.id },
-          data: { status: 'deleted' },
-        })
-        appLog('info', 'cleanup', `Deleted: "${item.title}"`)
-        deleted++
-      } else {
-        await prisma.cleanupReportItem.update({
-          where: { id: item.id },
-          data: { status: 'skipped' },
-        })
-        appLog('warn', 'cleanup', `Skipped (no service available): "${item.title}"`)
-        skipped++
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error(`Failed to delete "${item.title}":`, msg)
-      appLog('error', 'cleanup', `Failed to delete "${item.title}": ${msg}`)
-      await prisma.cleanupReportItem.update({
-        where: { id: item.id },
-        data: { status: 'error', errorMessage: msg },
-      })
-      failed++
-    }
-  }
-
-  const finalStatus = failed > 0 ? 'COMPLETED' : 'COMPLETED'
-  await prisma.cleanupReport.update({
-    where: { id: reportId },
-    data: { status: finalStatus, executedAt: new Date() },
+    if (changed.count !== 1) throw new Error('Report is not ready for execution')
+    if (options.excludeItemIds?.length) await tx.cleanupReportItem.updateMany({
+      where: { reportId, id: { in: options.excludeItemIds }, status: 'pending' }, data: { status: 'skipped' },
+    })
   })
+  return owner
+}
 
-  appLog('info', 'cleanup', `Report ${reportId} complete — deleted ${deleted}, skipped ${skipped}, failed ${failed}`)
+export async function executeReport(reportId: string, options: Options = {}) {
+  const owner = await acquireReport(reportId, options)
+  return runReport(reportId, owner)
+}
 
-  // Send notifications
+export async function runReport(reportId: string, owner: string) {
+  let deleted = 0, failed = 0, skipped = 0, freedBytes = 0
   try {
-    const freedBytes = report.items
-      .filter((_, i) => i < deleted)
-      .reduce((sum, item) => sum + Number(item.fileSizeBytes), 0)
+    const lock = await prisma.cleanupExecutionLock.findUnique({ where: { id: 'global' } })
+    if (lock?.owner !== owner || lock.reportId !== reportId) throw new Error('Execution ownership lost')
+    const report = await prisma.cleanupReport.findUniqueOrThrow({ where: { id: reportId }, include: { items: { where: { status: 'pending' } } } })
+    const cfg = await getConnectionConfig()
+    const plex = createPlexClient(cfg.plexUrl, cfg.plexToken)
+    const radarr = cfg.radarrUrl ? createRadarrClient(cfg.radarrUrl, cfg.radarrApiKey) : null
+    const sonarr = cfg.sonarrUrl ? createSonarrClient(cfg.sonarrUrl, cfg.sonarrApiKey) : null
 
-    await sendNotifications({
-      type: 'cleanup_complete',
-      reportId,
-      deleted,
-      failed,
-      skipped,
-      freedBytes,
-    })
+    for (const item of report.items) {
+      const current = await prisma.cleanupReport.findUniqueOrThrow({ where: { id: reportId } })
+      if (current.status !== 'EXECUTING') throw new Error('Execution state changed')
+      if (current.stopRequested || current.pauseRequested) {
+        await prisma.cleanupReport.update({ where: { id: reportId }, data: {
+          status: current.stopRequested ? 'COMPLETED' : 'PAUSED', pauseRequested: false, stopRequested: false,
+        } })
+        return { deleted, failed, skipped }
+      }
+      let effectStarted = false
+      try {
+        if (!item.safetySnapshot) throw new Error('Legacy report: rescan and regenerate')
+        const snapshot = JSON.parse(item.safetySnapshot) as { guid: string; stableId: number | null; server: string; connections: string; rule: { id: string } }
+        if (!snapshot.rule?.id || !snapshot.guid || !snapshot.server || snapshot.connections !== connectionFingerprint(cfg)) throw new Error('Safety snapshot or integration changed')
+        if ((await plex.getServerInfo()).machineIdentifier !== snapshot.server) throw new Error('Plex server changed')
+        const metadata = await plex.getMetadata(item.plexRatingKey)
+        if (metadata.guid !== snapshot.guid || metadata.type !== item.mediaType) throw new Error('Plex object identity changed')
+
+        let remove: (() => Promise<void>) | null = null
+        if (item.mediaType === 'movie' && item.radarrId) {
+          if (!radarr || !snapshot.stableId || stableId(metadata, 'tmdb') !== snapshot.stableId) throw new Error('Movie identity unavailable')
+          const movie = await radarr.getMovie(item.radarrId)
+          if (movie.tmdbId !== snapshot.stableId) throw new Error('Radarr object identity changed')
+          remove = () => radarr.deleteMovie(item.radarrId!, true)
+        } else if (item.mediaType === 'show' && item.sonarrId) {
+          if (!sonarr || !snapshot.stableId || stableId(metadata, 'tvdb') !== snapshot.stableId) throw new Error('Series identity unavailable')
+          const series = await sonarr.getSeriesById(item.sonarrId)
+          if (series.tvdbId !== snapshot.stableId) throw new Error('Sonarr object identity changed')
+          remove = () => sonarr.deleteSeries(item.sonarrId!, true)
+        } else if (report.allowPlexDeletion) {
+          remove = () => plex.deleteMetadata(item.plexRatingKey)
+        }
+        if (!remove) throw new Error('Direct Plex deletion was not approved')
+        // Always protect playback, including episodes mapped to their series.
+        // Never degrade a failed live query into an empty set.
+        const [sessions, onDeck] = await Promise.all([plex.getCurrentSessions(), plex.getOnDeck()])
+        if (playbackKeys(sessions).has(item.plexRatingKey) || playbackKeys(onDeck).has(item.plexRatingKey) || metadata.viewOffset) throw new Error('Media is playing or in progress')
+        if (connectionFingerprint(await getConnectionConfig()) !== snapshot.connections) throw new Error('Integration changed during execution')
+        await prisma.$transaction(async tx => {
+          const fence = await tx.cleanupExecutionLock.findUnique({ where: { id: 'global' } })
+          const state = await tx.cleanupReport.findUniqueOrThrow({ where: { id: reportId } })
+          if (fence?.owner !== owner || state.status !== 'EXECUTING' || state.pauseRequested || state.stopRequested) throw new Error('Execution interrupted')
+          if (await tx.permanentExclusion.findUnique({ where: { plexRatingKey: item.plexRatingKey } })) throw new Error('Permanently excluded')
+          if (await tx.cleanupReportItem.findFirst({ where: { plexRatingKey: item.plexRatingKey, status: { in: ['unknown', 'deleting'] } } })) throw new Error('Previous external outcome requires reconciliation')
+          const claimed = await tx.cleanupReportItem.updateMany({ where: { id: item.id, status: 'pending' }, data: { status: 'deleting' } })
+          if (claimed.count !== 1) throw new Error('Item already acquired')
+        })
+        effectStarted = true
+        // No fallback after an attempted Arr effect, even a 404: the outcome can
+        // be ambiguous. Regenerate/review rather than silently change authority.
+        await remove()
+        await prisma.cleanupReportItem.update({ where: { id: item.id }, data: { status: 'deleted' } })
+        deleted++
+        freedBytes += Number(item.fileSizeBytes)
+      } catch (err) {
+        await prisma.cleanupReportItem.updateMany({ where: { id: item.id, status: { in: ['pending', 'deleting'] } }, data: {
+          status: effectStarted ? 'unknown' : 'skipped',
+          errorMessage: effectStarted ? 'External outcome uncertain; reconcile manually before another attempt' : (err instanceof Error ? err.message : 'Safety validation failed'),
+        } })
+        if (effectStarted) failed++; else skipped++
+      }
+    }
+    await prisma.cleanupReport.update({ where: { id: reportId }, data: { status: 'COMPLETED', executedAt: new Date() } })
   } catch (err) {
-    console.error('Notification error:', err)
+    await prisma.cleanupReport.updateMany({ where: { id: reportId, status: 'EXECUTING' }, data: { status: 'FAILED' } })
+    throw err
+  } finally {
+    await prisma.cleanupExecutionLock.deleteMany({ where: { id: 'global', owner } })
   }
-
+  await sendNotifications({ type: 'cleanup_complete', reportId, deleted, failed, skipped, freedBytes }).catch(() => {})
   return { deleted, failed, skipped }
 }
